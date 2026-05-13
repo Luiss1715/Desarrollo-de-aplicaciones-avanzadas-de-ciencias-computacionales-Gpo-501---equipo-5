@@ -1,0 +1,19 @@
+{
+  "critical": [
+    "i want to die",
+    "kill myself",
+    "end my life",
+    "suicide",
+    "want to die",
+    "commit suicide",
+    "take my life"
+  ],
+  "warning": [
+    "hopeless",
+    "no reason to live",
+    "worthless",
+    "goodbye",
+    "i am done",
+    "cant go on"
+  ]
+}

@@ -12,4 +12,8 @@ Las pruebas cubren carga de datos, lexer, preprocesamiento y pipeline basico.
 - Semilla fija para reproducibilidad.
 
 ## Resultados
-Los resultados se guardan en reports/metrics.json y la curva ROC en reports/roc.png.
+ROC-AUC obtenido (split 80/20, seed 42): 0.7769.
+
+Artefactos generados:
+- reports/metrics.json
+- reports/roc.png

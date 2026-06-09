@@ -75,6 +75,7 @@ Este repositorio implementa una tuberia modular para detectar riesgo suicida en 
 
 ```bash
 pip install -r requirements.txt
+pip install -e .
 ```
 
 Opcional: instalar modelos de spaCy si se activa lematizacion.
@@ -111,3 +112,62 @@ python -m suicidality.cli predict --model models/pipeline.joblib --text "I want 
 
 - docs/parteA.md
 - docs/parteB.md
+- docs/fase3_nli_llm.md
+
+## Fase 3: Espacio latente, red neuronal y NLI
+
+La Fase 3 agrega dos métodos sin reemplazar el pipeline de Fase 2:
+
+- Embeddings de Transformer con `sentence-transformers`, usados como espacio
+  latente para entrenar una MLP en PyTorch.
+- Clasificación zero-shot NLI con un modelo MNLI y umbral configurable.
+
+Las dependencias de modelos se cargan al ejecutar cada comando. La primera
+ejecución descarga el modelo seleccionado desde Hugging Face.
+
+### Entrenar el clasificador sobre embeddings
+
+```bash
+python -m suicidality.latent_pipeline train --csv DataSet.csv --model-name sentence-transformers/all-MiniLM-L6-v2
+```
+
+Este comando guarda `models/latent_nn.pt`, `models/latent_config.json`, métricas
+y predicciones de validación.
+
+### Evaluar el clasificador sobre embeddings
+
+```bash
+python -m suicidality.latent_pipeline eval --csv DataSet.csv --model models/latent_nn.pt
+```
+
+### Ejecutar NLI zero-shot
+
+```bash
+python -m suicidality.nli_classifier eval --csv DataSet.csv --model-name facebook/bart-large-mnli --threshold 0.5
+```
+
+### Comparar Fase 2 y Fase 3
+
+```bash
+python -m suicidality.compare_phase2_phase3 --csv DataSet.csv
+```
+
+La comparación usa el mismo split estratificado para los tres métodos y genera:
+
+- `reports/phase2_predictions.csv`
+- `reports/phase3_latent_predictions.csv`
+- `reports/phase3_nli_predictions.csv`
+- `reports/comparison_metrics.json`
+- `reports/comparison_table.csv`
+
+La AUC principal se calcula con la fórmula del protocolo:
+`AUC = (1 + TPR - FPR) / 2`.
+
+### Visualizar el espacio latente
+
+```bash
+python -m suicidality.latent_visualization --csv DataSet.csv --model-name sentence-transformers/all-MiniLM-L6-v2
+```
+
+Se genera `reports/latent_space_pca.png`. Si `umap-learn` está instalado,
+también se genera `reports/latent_space_umap.png`.

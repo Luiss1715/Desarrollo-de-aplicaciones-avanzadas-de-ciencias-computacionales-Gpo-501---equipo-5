@@ -8,7 +8,7 @@ from sklearn.decomposition import PCA
 
 from .embeddings import DEFAULT_EMBEDDING_MODEL, TransformerEmbedder, prepare_texts
 from .latent_pipeline import load_phase3_dataset
-from .protocol_metrics import labels_from_frame
+from ..protocol_metrics import labels_from_frame
 
 
 def plot_projection(

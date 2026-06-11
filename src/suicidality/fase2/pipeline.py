@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
-from .config import TrainConfig
+from ..config import TrainConfig
 from .features import FeatureExtractor
 from .lexing import LexResult, RiskLexer
 from .model import SuicideRiskModel

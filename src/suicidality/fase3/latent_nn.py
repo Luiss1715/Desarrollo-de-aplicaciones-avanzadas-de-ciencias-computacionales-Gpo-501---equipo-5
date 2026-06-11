@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from sklearn.metrics import roc_auc_score
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -14,9 +15,9 @@ from torch.utils.data import DataLoader, TensorDataset
 class LatentNNConfig:
     input_dim: int
     embedding_model: str
-    hidden_dim_1: int = 256
-    hidden_dim_2: int = 64
-    dropout: float = 0.3
+    hidden_dim_1: int = 512
+    hidden_dim_2: int = 128
+    dropout: float = 0.4
     threshold: float = 0.5
 
 
@@ -48,15 +49,26 @@ def train_mlp(
     learning_rate: float = 1e-3,
     seed: int = 42,
     device: str | None = None,
+    use_class_weight: bool = True,
+    weight_decay: float = 1e-5,
 ) -> tuple[LatentMLP, list[dict[str, float]]]:
     torch.manual_seed(seed)
     target_device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model = LatentMLP(config).to(target_device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    loss_function = nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+
+    train_labels_tensor = torch.as_tensor(train_labels, dtype=torch.float32, device=target_device)
+    if use_class_weight:
+        positive = max(train_labels_tensor.sum().item(), 1.0)
+        negative = max(len(train_labels_tensor) - positive, 1.0)
+        pos_weight = torch.tensor(negative / positive, device=target_device)
+        loss_function = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    else:
+        loss_function = nn.BCEWithLogitsLoss()
+
     dataset = TensorDataset(
         torch.as_tensor(train_embeddings, dtype=torch.float32),
-        torch.as_tensor(train_labels, dtype=torch.float32),
+        train_labels_tensor,
     )
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     history = []
@@ -75,11 +87,17 @@ def train_mlp(
         scores = predict_scores(model, validation_embeddings, device=str(target_device))
         predictions = (scores >= config.threshold).astype(int)
         accuracy = float(np.mean(predictions == np.asarray(validation_labels)))
+        validation_auc = (
+            float(roc_auc_score(validation_labels, scores))
+            if len(set(validation_labels)) == 2
+            else 0.0
+        )
         history.append(
             {
                 "epoch": float(epoch + 1),
                 "train_loss": float(np.mean(losses)),
                 "validation_accuracy": accuracy,
+                "validation_roc_auc": validation_auc,
             }
         )
     return model, history

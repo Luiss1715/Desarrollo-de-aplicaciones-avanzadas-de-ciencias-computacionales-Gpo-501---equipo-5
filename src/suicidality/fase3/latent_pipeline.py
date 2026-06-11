@@ -15,9 +15,10 @@ from .latent_nn import (
     save_latent_model,
     train_mlp,
 )
-from .protocol_metrics import (
+from ..protocol_metrics import (
     build_prediction_frame,
     calculate_protocol_metrics,
+    find_best_threshold,
     labels_from_frame,
     save_metrics,
 )
@@ -44,6 +45,8 @@ def train_latent_pipeline(
     epochs: int = 20,
     batch_size: int = 32,
     device: str | None = None,
+    use_class_weight: bool = True,
+    weight_decay: float = 1e-5,
 ) -> tuple[pd.DataFrame, dict[str, int | float]]:
     labels = labels_from_frame(frame)
     indices = list(range(len(frame)))
@@ -55,21 +58,36 @@ def train_latent_pipeline(
     if embeddings_path:
         save_embeddings(embeddings, embeddings_path)
 
-    config = LatentNNConfig(input_dim=embeddings.shape[1], embedding_model=model_name)
+    base_config = LatentNNConfig(input_dim=embeddings.shape[1], embedding_model=model_name)
     model, _ = train_mlp(
         embeddings[train_indices],
         [labels[index] for index in train_indices],
         embeddings[validation_indices],
         [labels[index] for index in validation_indices],
-        config,
+        base_config,
         epochs=epochs,
         batch_size=batch_size,
         seed=seed,
         device=device,
+        use_class_weight=use_class_weight,
+        weight_decay=weight_decay,
+    )
+
+    scores = predict_scores(model, embeddings[validation_indices], device=device)
+    best_threshold = find_best_threshold(
+        [labels[index] for index in validation_indices],
+        scores,
+    )
+    config = LatentNNConfig(
+        input_dim=base_config.input_dim,
+        embedding_model=base_config.embedding_model,
+        hidden_dim_1=base_config.hidden_dim_1,
+        hidden_dim_2=base_config.hidden_dim_2,
+        dropout=base_config.dropout,
+        threshold=best_threshold,
     )
     save_latent_model(model, config, model_path, config_path)
 
-    scores = predict_scores(model, embeddings[validation_indices], device=device)
     predicted = predict_labels(scores, config.threshold)
     predictions = build_prediction_frame(
         frame, validation_indices, predicted, scores, "phase3_latent"
@@ -127,6 +145,8 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--seed", type=int, default=42)
     train_parser.add_argument("--epochs", type=int, default=20)
     train_parser.add_argument("--batch-size", type=int, default=32)
+    train_parser.add_argument("--weight-decay", type=float, default=1e-5)
+    train_parser.add_argument("--class-weighted", action="store_true")
     train_parser.add_argument("--device")
 
     eval_parser = subparsers.add_parser("eval", help="Evaluate a trained latent-space classifier")
@@ -157,6 +177,8 @@ def main() -> None:
             epochs=args.epochs,
             batch_size=args.batch_size,
             device=args.device,
+            use_class_weight=args.class_weighted,
+            weight_decay=args.weight_decay,
         )
     else:
         evaluate_latent_pipeline(

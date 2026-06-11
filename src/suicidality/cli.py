@@ -8,11 +8,11 @@ from sklearn.model_selection import train_test_split
 
 from .config import LEXICON_PATH, TrainConfig
 from .evaluate import evaluate_auc, save_metrics, save_roc_curve
-from .features import FeatureExtractor
-from .ingest import load_dataset
-from .lexing import RiskLexer
-from .model import SuicideRiskModel
-from .pipeline import SuicidalityPipeline
+from .fase2.features import FeatureExtractor
+from .fase2.ingest import load_dataset
+from .fase2.lexing import RiskLexer
+from .fase2.model import SuicideRiskModel
+from .fase2.pipeline import SuicidalityPipeline
 
 
 def _build_pipeline(config: TrainConfig) -> SuicidalityPipeline:

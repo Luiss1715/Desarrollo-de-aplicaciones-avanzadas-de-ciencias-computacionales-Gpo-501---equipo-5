@@ -9,7 +9,7 @@ import pandas as pd
 
 from .embeddings import prepare_texts
 from .latent_pipeline import load_phase3_dataset
-from .protocol_metrics import (
+from ..protocol_metrics import (
     build_prediction_frame,
     calculate_protocol_metrics,
     labels_from_frame,
@@ -20,7 +20,10 @@ from .protocol_metrics import (
 DEFAULT_NLI_MODEL = "facebook/bart-large-mnli"
 SUICIDAL_LABEL = "suicidal ideation"
 NON_SUICIDAL_LABEL = "no suicidal ideation"
-HYPOTHESIS_TEMPLATE = "This text expresses {}."
+DEFAULT_HYPOTHESIS_TEMPLATES = (
+    "This text expresses {}.",
+    "This text is {}.",
+)
 
 
 class ZeroShotNLIClassifier:
@@ -29,10 +32,12 @@ class ZeroShotNLIClassifier:
         model_name: str = DEFAULT_NLI_MODEL,
         threshold: float = 0.5,
         device: int | None = None,
+        hypothesis_templates: Sequence[str] | None = None,
     ):
         self.model_name = model_name
         self.threshold = threshold
         self.device = device
+        self.hypothesis_templates = list(hypothesis_templates or DEFAULT_HYPOTHESIS_TEMPLATES)
         self._classifier = None
 
     def _load_classifier(self):
@@ -49,22 +54,25 @@ class ZeroShotNLIClassifier:
 
     def predict(self, texts: Sequence[str], batch_size: int = 8) -> tuple[np.ndarray, np.ndarray]:
         classifier = self._load_classifier()
-        results = classifier(
-            list(texts),
-            candidate_labels=[SUICIDAL_LABEL, NON_SUICIDAL_LABEL],
-            hypothesis_template=HYPOTHESIS_TEMPLATE,
-            multi_label=False,
-            batch_size=batch_size,
-            truncation=True,
-        )
-        if isinstance(results, dict):
-            results = [results]
-        scores = np.asarray(
-            [
-                float(result["scores"][result["labels"].index(SUICIDAL_LABEL)])
-                for result in results
-            ]
-        )
+        scores = np.zeros(len(texts), dtype=float)
+        for template in self.hypothesis_templates:
+            results = classifier(
+                list(texts),
+                candidate_labels=[SUICIDAL_LABEL, NON_SUICIDAL_LABEL],
+                hypothesis_template=template,
+                multi_label=False,
+                batch_size=batch_size,
+                truncation=True,
+            )
+            if isinstance(results, dict):
+                results = [results]
+            scores += np.asarray(
+                [
+                    float(result["scores"][result["labels"].index(SUICIDAL_LABEL)])
+                    for result in results
+                ]
+            )
+        scores /= max(1, len(self.hypothesis_templates))
         return (scores >= self.threshold).astype(int), scores
 
 
@@ -72,12 +80,15 @@ def evaluate_nli(
     frame: pd.DataFrame,
     model_name: str = DEFAULT_NLI_MODEL,
     threshold: float = 0.5,
+    hypothesis_templates: Sequence[str] | None = None,
     predictions_path: str | Path = "reports/phase3_nli_predictions.csv",
     metrics_path: str | Path = "reports/phase3_nli_metrics.json",
     batch_size: int = 8,
     device: int | None = None,
 ) -> tuple[pd.DataFrame, dict[str, int | float]]:
-    classifier = ZeroShotNLIClassifier(model_name, threshold, device=device)
+    classifier = ZeroShotNLIClassifier(
+        model_name, threshold, device=device, hypothesis_templates=hypothesis_templates
+    )
     predicted, scores = classifier.predict(prepare_texts(frame), batch_size=batch_size)
     labels = labels_from_frame(frame)
     predictions = build_prediction_frame(frame, range(len(frame)), predicted, scores, "phase3_nli")
@@ -96,6 +107,11 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--csv", required=True)
     eval_parser.add_argument("--model-name", default=DEFAULT_NLI_MODEL)
     eval_parser.add_argument("--threshold", type=float, default=0.5)
+    eval_parser.add_argument(
+        "--hypothesis-template",
+        nargs="+",
+        default=list(DEFAULT_HYPOTHESIS_TEMPLATES),
+    )
     eval_parser.add_argument("--predictions-out", default="reports/phase3_nli_predictions.csv")
     eval_parser.add_argument("--metrics-out", default="reports/phase3_nli_metrics.json")
     eval_parser.add_argument("--batch-size", type=int, default=8)
@@ -110,6 +126,7 @@ def main() -> None:
         frame,
         model_name=args.model_name,
         threshold=args.threshold,
+        hypothesis_templates=args.hypothesis_template,
         predictions_path=args.predictions_out,
         metrics_path=args.metrics_out,
         batch_size=args.batch_size,

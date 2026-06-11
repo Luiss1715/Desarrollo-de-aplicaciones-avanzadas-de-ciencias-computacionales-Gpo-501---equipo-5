@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
+import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
@@ -47,6 +48,22 @@ def calculate_protocol_metrics(
     if y_score is not None and len(set(y_true)) == 2:
         metrics["ROC-AUC"] = float(roc_auc_score(y_true, y_score))
     return metrics
+
+
+def find_best_threshold(
+    y_true: Sequence[int],
+    y_score: Sequence[float],
+    num_thresholds: int = 101,
+) -> float:
+    best_threshold = 0.5
+    best_auc = -1.0
+    for threshold in np.linspace(0.0, 1.0, num_thresholds):
+        y_pred = [1 if score >= threshold else 0 for score in y_score]
+        metrics = calculate_protocol_metrics(y_true, y_pred, y_score)
+        if metrics["AUC"] > best_auc:
+            best_auc = metrics["AUC"]
+            best_threshold = threshold
+    return best_threshold
 
 
 def build_prediction_frame(

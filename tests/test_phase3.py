@@ -1,9 +1,9 @@
 import pandas as pd
 
 from suicidality.compare_phase2_phase3 import COMPARISON_COLUMNS, build_comparison_table
-from suicidality.embeddings import combine_title_text, prepare_texts
+from suicidality.fase3.embeddings import combine_title_text, prepare_texts
 from suicidality.llm_prompt_classifier import PromptLLMClassifier, parse_prompt_response
-from suicidality.nli_classifier import ZeroShotNLIClassifier
+from suicidality.fase3.nli_classifier import ZeroShotNLIClassifier
 from suicidality.protocol_metrics import PREDICTION_COLUMNS, build_prediction_frame
 
 
@@ -78,3 +78,32 @@ def test_prompt_classifier_uses_injected_generator():
     assert predicted.tolist() == [1]
     assert scores.tolist() == [0.8]
     assert parse_prompt_response('Result: {"label": "no", "score": 0.2}') == (0, 0.2)
+
+
+def test_find_best_threshold_returns_best_cutoff():
+    y_true = [1, 1, 0, 0]
+    y_score = [0.9, 0.8, 0.2, 0.1]
+    from suicidality.protocol_metrics import find_best_threshold
+
+    threshold = find_best_threshold(y_true, y_score)
+
+    assert threshold in {0.2, 0.21, 0.22, 0.23, 0.24}
+
+
+def test_nli_predict_average_templates():
+    classifier = ZeroShotNLIClassifier(threshold=0.5, hypothesis_templates=[
+        "This text expresses {}.",
+        "This text is {}.",
+    ])
+    classifier._classifier = lambda texts, **kwargs: [
+        {
+            "labels": ["suicidal ideation", "no suicidal ideation"],
+            "scores": [0.8, 0.2],
+        }
+        for _ in texts
+    ]
+
+    predicted, scores = classifier.predict(["sample text"])
+
+    assert predicted.tolist() == [1]
+    assert scores.tolist() == [0.8]

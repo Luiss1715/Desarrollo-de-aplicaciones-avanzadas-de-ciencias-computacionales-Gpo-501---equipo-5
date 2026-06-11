@@ -86,14 +86,16 @@ La comparación real se guarda en `reports/comparison_table.csv` con esta forma:
 
 | method | TP | TN | FP | FN | TPR | FPR | AUC | ROC-AUC | comentario |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `phase2` | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | TF-IDF, banderas léxicas y regresión logística |
-| `phase3_latent` | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | Embeddings de Transformer y MLP |
-| `phase3_nli` | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | generado al ejecutar | NLI zero-shot |
+| `phase2` | 14 | 21 | 4 | 12 | 0.5385 | 0.1600 | 0.6892 | 0.7769 | TF-IDF, banderas léxicas y regresión logística |
+| `phase3_latent` | 17 | 17 | 8 | 9 | 0.6538 | 0.3200 | 0.6669 | 0.6831 | Embeddings de Transformer y MLP |
+| `phase3_nli` | 25 | 3 | 22 | 1 | 0.9615 | 0.8800 | 0.5408 | 0.6708 | NLI zero-shot |
 
-No se debe concluir que Fase 3 mejora solo porque usa modelos más grandes. La
-conclusión debe revisar especialmente los falsos negativos, porque representan
-casos de riesgo no detectados. Los falsos positivos también importan porque
-pueden generar alertas innecesarias.
+Estos resultados corresponden a `DataSet.csv`, split estratificado 80/20, semilla
+42 y umbral 0.5. Fase 2 obtuvo la mayor AUC del protocolo y ROC-AUC, además del
+menor número de falsos positivos. La MLP redujo los falsos negativos de 12 a 9,
+pero duplicó los falsos positivos de 4 a 8. NLI detectó 25 de 26 positivos y dejó
+solo un falso negativo, a costa de clasificar casi todos los textos como
+positivos: produjo 22 falsos positivos y un FPR de 0.88.
 
 Fase 2 es más barata e interpretable: permite inspeccionar términos, banderas y
 coeficientes. La MLP puede aprender patrones semánticos menos evidentes, pero
@@ -102,6 +104,19 @@ entrenamiento local, aunque tiene mayor costo computacional y sensibilidad a la
 formulación de etiquetas. Si Fase 3 no supera a Fase 2 en AUC o falsos negativos,
 sigue siendo útil como referencia semántica y para estudiar errores que TF-IDF
 no representa bien.
+
+## Ejecución con GPU
+
+En una computadora con PyTorch configurado para CUDA, la comparación puede
+ejecutarse con:
+
+```bash
+python -m suicidality.compare_phase2_phase3 --csv DataSet.csv --reports-dir reports --models-dir models --device cuda --nli-device 0
+```
+
+La GPU reduce principalmente el tiempo de embeddings, entrenamiento de la MLP y
+NLI. Las métricas solo son comparables si se conservan el dataset, semilla,
+split, umbral y modelos.
 
 ## Artefactos
 

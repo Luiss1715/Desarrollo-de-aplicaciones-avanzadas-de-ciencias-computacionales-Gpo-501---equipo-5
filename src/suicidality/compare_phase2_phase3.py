@@ -135,9 +135,9 @@ def compare_methods(
     nli_scores = nli_scores_array.tolist()
 
     methods = [
-        ("phase2", phase2_predicted, phase2_scores, "TF-IDF, lexical flags and logistic regression"),
-        ("phase3_latent", latent_predicted, latent_scores.tolist(), "Transformer embeddings and MLP"),
-        ("phase3_nli", nli_predicted, nli_scores, f"Zero-shot NLI: {nli_model}"),
+        ("phase2", phase2_predicted, phase2_scores, "TF-IDF, banderas lexicas y regresion logistica"),
+        ("phase3_latent", latent_predicted, latent_scores.tolist(), "Embeddings de Transformer y MLP"),
+        ("phase3_nli", nli_predicted, nli_scores, f"NLI zero-shot: {nli_model}"),
     ]
     comparison_metrics = {}
     table_rows = []

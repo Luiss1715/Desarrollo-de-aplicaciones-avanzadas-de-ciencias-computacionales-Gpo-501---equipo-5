@@ -45,7 +45,7 @@ def calculate_protocol_metrics(
         "AUC": (1 + tpr - fpr) / 2,
     }
     if y_score is not None and len(set(y_true)) == 2:
-        metrics["roc_auc"] = float(roc_auc_score(y_true, y_score))
+        metrics["ROC-AUC"] = float(roc_auc_score(y_true, y_score))
     return metrics
 
 

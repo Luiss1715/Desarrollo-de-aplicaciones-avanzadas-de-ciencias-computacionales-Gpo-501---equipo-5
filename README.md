@@ -174,6 +174,12 @@ La tabla comparativa incluye tambien ROC-AUC, calculada con los scores continuos
 La primera ejecucion descarga los modelos de Hugging Face y puede requerir varios
 minutos, memoria suficiente y conexion a internet.
 
+En un equipo con PyTorch y CUDA:
+
+```bash
+python -m suicidality.compare_phase2_phase3 --csv DataSet.csv --reports-dir reports --models-dir models --device cuda --nli-device 0
+```
+
 ### Visualizar el espacio latente
 
 ```bash

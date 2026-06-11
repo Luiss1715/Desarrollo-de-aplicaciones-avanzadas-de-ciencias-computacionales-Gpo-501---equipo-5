@@ -58,7 +58,7 @@ def test_comparison_table_has_protocol_and_roc_auc_columns():
                 "TPR": 1.0,
                 "FPR": 0.0,
                 "AUC": 1.0,
-                "roc_auc": 1.0,
+                "ROC-AUC": 1.0,
                 "notes": "test",
             }
         ]

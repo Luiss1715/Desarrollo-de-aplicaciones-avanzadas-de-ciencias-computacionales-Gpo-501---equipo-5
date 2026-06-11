@@ -62,7 +62,7 @@ def cmd_eval(args: argparse.Namespace) -> None:
 
 def cmd_predict(args: argparse.Namespace) -> None:
     pipeline = _load_model(Path(args.model))
-    label, score, alerts = pipeline.predict_with_fast_path(args.text)
+    label, score, alerts = pipeline.predict_text(args.text)
     print({"label": int(label), "score": float(score), "alerts": alerts})
 
 

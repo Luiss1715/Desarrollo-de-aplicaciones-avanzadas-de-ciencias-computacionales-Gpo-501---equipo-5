@@ -4,7 +4,7 @@ Pipeline de deteccion de suicidalidad en Python. Clasificacion binaria con evalu
 
 ## Descripcion general
 
-Este repositorio implementa una tuberia modular para detectar riesgo suicida en texto. El flujo es secuencial y cada etapa tiene una responsabilidad clara. Ademas, existe un **fast-path**: si el lexer encuentra frases criticas explicitas, el sistema puede devolver riesgo alto sin invocar el modelo.
+Este repositorio implementa una tuberia modular para detectar riesgo suicida en texto. El flujo es secuencial y cada etapa tiene una responsabilidad clara. Las frases criticas detectadas por el lexer se usan como caracteristicas del modelo, pero no determinan automaticamente la clasificacion.
 
 ### Flujo completo (paso a paso)
 
@@ -19,7 +19,7 @@ Este repositorio implementa una tuberia modular para detectar riesgo suicida en 
 	  - `tokens`: tokenizacion basica.
 	  - `flags`: banderas binarias por categoria del lexicon.
 	  - `critical_matches`: frases explicitas de alta alerta.
-	- **Fast-path**: si `critical_matches` no esta vacio, se puede devolver `risk_label=high` y `risk_score=1.0`.
+	- Las coincidencias criticas se incorporan como banderas lexicas y la clasificacion siempre la realiza el modelo.
 
 3. **Preprocesamiento**
 	- Normaliza URLs/emails, pasa a minusculas y colapsa espacios.
@@ -55,7 +55,7 @@ Este repositorio implementa una tuberia modular para detectar riesgo suicida en 
 ### Archivos y responsabilidades
 
 - `src/suicidality/ingest.py`: lectura de CSV, union de campos y mapeo de etiquetas.
-- `src/suicidality/lexing.py`: lexer, reglas del lexicon y fast-path.
+- `src/suicidality/lexing.py`: lexer y reglas del lexicon.
 - `src/suicidality/preprocess.py`: limpieza y lematizacion opcional.
 - `src/suicidality/features.py`: TF-IDF + banderas lexicas.
 - `src/suicidality/model.py`: wrapper de regresion logistica.

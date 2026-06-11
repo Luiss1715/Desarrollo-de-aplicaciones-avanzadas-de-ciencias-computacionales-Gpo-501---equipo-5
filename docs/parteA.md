@@ -5,7 +5,7 @@ La solucion es un pipeline de seis etapas: ingesta, analisis lexico, preprocesam
 
 ## 2. Componentes principales
 - M1 Ingesta: valida y normaliza texto de entrada.
-- M2 Analisis lexico: lexer con patrones de riesgo y fast-path.
+- M2 Analisis lexico: lexer con patrones de riesgo.
 - M3 Preprocesamiento: limpieza, stopwords, lematizacion opcional.
 - M4 Caracteristicas: TF-IDF mas banderas lexicas.
 - M5 Clasificacion: modelo de ML para etiqueta binaria.
@@ -13,7 +13,7 @@ La solucion es un pipeline de seis etapas: ingesta, analisis lexico, preprocesam
 
 ## 3. Relaciones y dependencias
 - M1 -> M2 -> M3 -> M4 -> M5 -> M6 (flujo secuencial).
-- M2 -> M6 (fast-path si hay frases criticas).
+- M2 -> M4 (las banderas lexicas se incorporan a las caracteristicas).
 - Dependencias internas: M4 requiere vectorizador entrenado; M5 requiere modelo entrenado.
 
 ## 4. Datos de entrada y salida

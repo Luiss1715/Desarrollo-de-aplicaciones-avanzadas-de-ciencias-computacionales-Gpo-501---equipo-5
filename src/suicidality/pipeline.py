@@ -38,10 +38,8 @@ class SuicidalityPipeline:
         proba = self.predict_proba(texts)
         return [1 if p >= 0.5 else 0 for p in proba]
 
-    def predict_with_fast_path(self, text: str) -> tuple[int, float, List[str]]:
+    def predict_text(self, text: str) -> tuple[int, float, List[str]]:
         lex = self.lexer.scan(text)
-        if lex.critical_matches:
-            return 1, 1.0, lex.critical_matches
         cleaned = preprocess_text(text, use_spacy=self.config.use_spacy)
         x = self.features.transform([cleaned], [lex.flags])
         score = float(self.model.predict_proba(x)[0])

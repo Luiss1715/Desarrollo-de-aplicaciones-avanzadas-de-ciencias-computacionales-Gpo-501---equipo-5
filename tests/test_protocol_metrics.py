@@ -1,6 +1,8 @@
+import json
+
 import pytest
 
-from suicidality.protocol_metrics import calculate_protocol_metrics
+from suicidality.protocol_metrics import calculate_protocol_metrics, save_metrics
 
 
 def test_protocol_metrics_counts_and_auc():
@@ -18,3 +20,14 @@ def test_protocol_metrics_counts_and_auc():
     assert metrics["FPR"] == 0.5
     assert metrics["AUC"] == 0.5
     assert metrics["roc_auc"] == pytest.approx(0.75)
+
+
+def test_save_metrics_rounds_values(tmp_path):
+    output = tmp_path / "metrics.json"
+    save_metrics({"TP": 1, "TPR": 1 / 3, "roc_auc": 0.75}, output)
+
+    assert json.loads(output.read_text(encoding="utf-8")) == {
+        "TP": 1,
+        "TPR": 0.333333,
+        "roc_auc": 0.75,
+    }

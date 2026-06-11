@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_auc_score, roc_curve
 
 
 @dataclass(frozen=True)
@@ -18,6 +17,7 @@ class EvalResult:
     tpr: float
     fpr: float
     auc: float
+    roc_auc: float | None
 
 
 def evaluate_auc(y_true: List[int], y_score: List[float], threshold: float = 0.5) -> EvalResult:
@@ -31,24 +31,38 @@ def evaluate_auc(y_true: List[int], y_score: List[float], threshold: float = 0.5
     # Protocol formula: AUC = (1 + TPR - FPR) / 2
     auc = (1 + tpr - fpr) / 2
 
-    return EvalResult(tp=tp, tn=tn, fp=fp, fn=fn, tpr=tpr, fpr=fpr, auc=auc)
+    roc_auc = float(roc_auc_score(y_true, y_score)) if len(set(y_true)) == 2 else None
+    return EvalResult(
+        tp=tp,
+        tn=tn,
+        fp=fp,
+        fn=fn,
+        tpr=tpr,
+        fpr=fpr,
+        auc=auc,
+        roc_auc=roc_auc,
+    )
 
 
 def save_metrics(result: EvalResult, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "tp": result.tp,
-        "tn": result.tn,
-        "fp": result.fp,
-        "fn": result.fn,
-        "tpr": round(result.tpr, 6),
-        "fpr": round(result.fpr, 6),
-        "auc": round(result.auc, 6),
+        "TP": result.tp,
+        "TN": result.tn,
+        "FP": result.fp,
+        "FN": result.fn,
+        "TPR": round(result.tpr, 6),
+        "FPR": round(result.fpr, 6),
+        "AUC": round(result.auc, 6),
     }
+    if result.roc_auc is not None:
+        payload["ROC-AUC"] = round(result.roc_auc, 6)
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def save_roc_curve(y_true, y_score, output_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
     fpr, tpr, _ = roc_curve(y_true, y_score)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.figure()

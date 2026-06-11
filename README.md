@@ -66,7 +66,8 @@ Este repositorio implementa una tuberia modular para detectar riesgo suicida en 
 ### Protocolo de evaluacion
 
 - Split train/test: **80/20 estratificado** con semilla fija.
-- Metrica: **ROC-AUC**.
+- Metricas: TP, TN, FP, FN, TPR, FPR, AUC del protocolo y ROC-AUC.
+- AUC del protocolo: `(1 + TPR - FPR) / 2`.
 - Artefactos:
 	- `reports/metrics.json`
 	- `reports/roc.png`
@@ -77,6 +78,9 @@ Este repositorio implementa una tuberia modular para detectar riesgo suicida en 
 pip install -r requirements.txt
 pip install -e .
 ```
+
+`pip install -e .` permite ejecutar los modulos `suicidality` sin configurar
+`PYTHONPATH`.
 
 Opcional: instalar modelos de spaCy si se activa lematizacion.
 
@@ -149,7 +153,7 @@ python -m suicidality.nli_classifier eval --csv DataSet.csv --model-name faceboo
 ### Comparar Fase 2 y Fase 3
 
 ```bash
-python -m suicidality.compare_phase2_phase3 --csv DataSet.csv
+python -m suicidality.compare_phase2_phase3 --csv DataSet.csv --reports-dir reports --models-dir models
 ```
 
 La comparación usa el mismo split estratificado para los tres métodos y genera:
@@ -159,9 +163,16 @@ La comparación usa el mismo split estratificado para los tres métodos y genera
 - `reports/phase3_nli_predictions.csv`
 - `reports/comparison_metrics.json`
 - `reports/comparison_table.csv`
+- `reports/metrics.json`
+- `reports/roc.png`
+- `reports/latent_space_pca.png`
 
 La AUC principal se calcula con la fórmula del protocolo:
 `AUC = (1 + TPR - FPR) / 2`.
+
+La tabla comparativa incluye tambien ROC-AUC, calculada con los scores continuos.
+La primera ejecucion descarga los modelos de Hugging Face y puede requerir varios
+minutos, memoria suficiente y conexion a internet.
 
 ### Visualizar el espacio latente
 
@@ -171,3 +182,22 @@ python -m suicidality.latent_visualization --csv DataSet.csv --model-name senten
 
 Se genera `reports/latent_space_pca.png`. Si `umap-learn` está instalado,
 también se genera `reports/latent_space_umap.png`.
+
+Instalacion opcional de UMAP:
+
+```bash
+pip install umap-learn
+```
+
+### Clasificador LLM por prompt opcional
+
+`src/suicidality/llm_prompt_classifier.py` ofrece una interfaz experimental para
+clasificar con un prompt y un generador inyectado. Tambien incluye
+`HuggingFacePromptLLMClassifier`, que carga un modelo generativo local de forma
+diferida. No requiere una API pagada y no participa en la comparacion principal.
+
+### Pruebas
+
+```bash
+pytest -q
+```

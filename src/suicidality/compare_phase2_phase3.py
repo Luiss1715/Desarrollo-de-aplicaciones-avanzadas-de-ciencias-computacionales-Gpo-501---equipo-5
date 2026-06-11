@@ -5,19 +5,42 @@ import json
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
+from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 
 from .config import LEXICON_PATH, TrainConfig
 from .embeddings import DEFAULT_EMBEDDING_MODEL, TransformerEmbedder, prepare_texts
+from .evaluate import save_roc_curve
 from .features import FeatureExtractor
 from .latent_nn import LatentNNConfig, predict_labels, predict_scores, save_latent_model, train_mlp
 from .latent_pipeline import load_phase3_dataset
+from .latent_visualization import plot_projection
 from .lexing import RiskLexer
 from .model import SuicideRiskModel
 from .nli_classifier import DEFAULT_NLI_MODEL, ZeroShotNLIClassifier
 from .pipeline import SuicidalityPipeline
-from .protocol_metrics import build_prediction_frame, calculate_protocol_metrics, labels_from_frame
+from .protocol_metrics import (
+    build_prediction_frame,
+    calculate_protocol_metrics,
+    labels_from_frame,
+    save_metrics,
+)
+
+
+COMPARISON_COLUMNS = [
+    "method",
+    "TP",
+    "TN",
+    "FP",
+    "FN",
+    "TPR",
+    "FPR",
+    "AUC",
+    "ROC-AUC",
+    "comentario",
+]
 
 
 def build_phase2_pipeline(config: TrainConfig) -> SuicidalityPipeline:
@@ -29,6 +52,15 @@ def build_phase2_pipeline(config: TrainConfig) -> SuicidalityPipeline:
         ),
         model=SuicideRiskModel(),
     )
+
+
+def build_comparison_table(rows: list[dict[str, object]]) -> pd.DataFrame:
+    comparison = pd.DataFrame(rows).rename(
+        columns={"roc_auc": "ROC-AUC", "notes": "comentario"}
+    )
+    if "ROC-AUC" not in comparison:
+        comparison["ROC-AUC"] = np.nan
+    return comparison[COMPARISON_COLUMNS]
 
 
 def compare_methods(
@@ -61,8 +93,18 @@ def compare_methods(
     joblib.dump(phase2, models_path / "pipeline.joblib")
     phase2_scores = phase2.predict_proba([texts[index] for index in test_indices])
     phase2_predicted = [1 if score >= threshold else 0 for score in phase2_scores]
+    test_labels = [labels[index] for index in test_indices]
+    phase2_metrics = calculate_protocol_metrics(test_labels, phase2_predicted, phase2_scores)
+    save_metrics(phase2_metrics, reports_path / "metrics.json")
+    save_roc_curve(test_labels, phase2_scores, reports_path / "roc.png")
 
     embeddings = TransformerEmbedder(embedding_model, device=device).encode(texts, batch_size=batch_size)
+    plot_projection(
+        PCA(n_components=2).fit_transform(embeddings),
+        labels,
+        "Latent space: PCA",
+        reports_path / "latent_space_pca.png",
+    )
     latent_config = LatentNNConfig(
         input_dim=embeddings.shape[1], embedding_model=embedding_model, threshold=threshold
     )
@@ -99,7 +141,6 @@ def compare_methods(
     ]
     comparison_metrics = {}
     table_rows = []
-    test_labels = [labels[index] for index in test_indices]
     for method, predicted, scores, notes in methods:
         predictions = build_prediction_frame(frame, test_indices, predicted, scores, method)
         predictions.to_csv(reports_path / f"{method}_predictions.csv", index=False)
@@ -110,10 +151,9 @@ def compare_methods(
     (reports_path / "comparison_metrics.json").write_text(
         json.dumps(comparison_metrics, indent=2), encoding="utf-8"
     )
-    columns = ["method", "TP", "TN", "FP", "FN", "TPR", "FPR", "AUC", "notes"]
-    comparison = pd.DataFrame(table_rows)
-    comparison[columns].to_csv(reports_path / "comparison_table.csv", index=False)
-    return comparison[columns]
+    comparison = build_comparison_table(table_rows)
+    comparison.to_csv(reports_path / "comparison_table.csv", index=False)
+    return comparison
 
 
 def main() -> None:

@@ -15,12 +15,17 @@ from .config import LEXICON_PATH, TrainConfig
 from .fase3.embeddings import DEFAULT_EMBEDDING_MODEL, TransformerEmbedder, prepare_texts
 from .evaluate import save_roc_curve
 from .fase2.features import FeatureExtractor
+from .fase3.latent_classifiers import (
+    LATENT_CLASSIFIER_NAMES,
+    fit_latent_classifier,
+    predict_positive_scores,
+)
 from .fase3.latent_nn import LatentNNConfig, predict_labels, predict_scores, save_latent_model, train_mlp
 from .fase3.latent_pipeline import load_phase3_dataset
 from .fase3.latent_visualization import plot_projection
 from .fase2.lexing import RiskLexer
 from .fase2.model import SuicideRiskModel
-from .fase3.nli_classifier import DEFAULT_NLI_MODEL, ZeroShotNLIClassifier
+from .fase3.nli_classifier import DEFAULT_NLI_MODEL, SupervisedNLIClassifier, ZeroShotNLIClassifier
 from .fase2.pipeline import SuicidalityPipeline
 from .protocol_metrics import (
     build_prediction_frame,
@@ -43,6 +48,21 @@ COMPARISON_COLUMNS = [
     "ROC-AUC",
     "comentario",
 ]
+
+LATENT_METHODS = {
+    "logistic_regression": (
+        "phase3_latent_logreg",
+        "Embeddings de Transformer y regresion logistica",
+    ),
+    "linear_svm": (
+        "phase3_latent_svm",
+        "Embeddings de Transformer y SVM lineal",
+    ),
+    "random_forest": (
+        "phase3_latent_random_forest",
+        "Embeddings de Transformer y Random Forest",
+    ),
+}
 
 
 def build_phase2_pipeline(config: TrainConfig) -> SuicidalityPipeline:
@@ -212,17 +232,82 @@ def compare_methods(
     latent_scores = predict_scores(latent_model, test_embeddings, device=device)
     latent_predicted = predict_labels(latent_scores, latent_config.threshold).tolist()
 
+    latent_classic_results = {}
+    for classifier_name in LATENT_CLASSIFIER_NAMES:
+        validation_classifier = fit_latent_classifier(
+            classifier_name,
+            embeddings[internal_train_indices],
+            [labels[index] for index in internal_train_indices],
+            seed,
+        )
+        validation_scores = predict_positive_scores(
+            validation_classifier, embeddings[validation_indices]
+        )
+        classifier_threshold = find_best_threshold(validation_labels, validation_scores)
+        classifier = fit_latent_classifier(classifier_name, embeddings, labels, seed)
+        joblib.dump(classifier, models_path / f"latent_{classifier_name}.joblib")
+        classifier_scores = predict_positive_scores(classifier, test_embeddings)
+        method_name, notes = LATENT_METHODS[classifier_name]
+        latent_classic_results[classifier_name] = {
+            "method": method_name,
+            "notes": notes,
+            "threshold": classifier_threshold,
+            "validation_scores": validation_scores,
+            "scores": classifier_scores,
+            "predicted": [
+                1 if score >= classifier_threshold else 0 for score in classifier_scores
+            ],
+        }
+
     nli_classifier = ZeroShotNLIClassifier(nli_model, threshold, device=nli_device)
+    nli_batch_size = max(1, batch_size // 4)
     _, nli_validation_scores = nli_classifier.predict(
-        [texts[index] for index in validation_indices], batch_size=max(1, batch_size // 4)
+        [texts[index] for index in validation_indices], batch_size=nli_batch_size
     )
     nli_threshold = find_best_threshold(validation_labels, nli_validation_scores)
-    _, nli_scores_array = nli_classifier.predict(test_texts, batch_size=max(1, batch_size // 4))
+    _, nli_scores_array = nli_classifier.predict(test_texts, batch_size=nli_batch_size)
     nli_scores = nli_scores_array.tolist()
     nli_predicted = [1 if score >= nli_threshold else 0 for score in nli_scores]
 
+    supervised_nli = SupervisedNLIClassifier(nli_classifier, seed=seed)
+    nli_training_features = supervised_nli.extract_features(texts, batch_size=nli_batch_size)
+    nli_test_features = supervised_nli.extract_features(test_texts, batch_size=nli_batch_size)
+    supervised_nli_validation = SupervisedNLIClassifier(nli_classifier, seed=seed)
+    supervised_nli_validation.fit_features(
+        nli_training_features[internal_train_indices],
+        [labels[index] for index in internal_train_indices],
+    )
+    _, supervised_nli_validation_scores = supervised_nli_validation.predict_from_features(
+        nli_training_features[validation_indices]
+    )
+    supervised_nli_threshold = find_best_threshold(
+        validation_labels, supervised_nli_validation_scores
+    )
+    supervised_nli.fit_features(nli_training_features, labels)
+    _, supervised_nli_scores = supervised_nli.predict_from_features(
+        nli_test_features, supervised_nli_threshold
+    )
+    supervised_nli_predicted = [
+        1 if score >= supervised_nli_threshold else 0 for score in supervised_nli_scores
+    ]
+    joblib.dump(
+        {
+            "candidate_labels": supervised_nli.candidate_labels,
+            "classifier": supervised_nli.classifier,
+        },
+        models_path / "nli_supervised.joblib",
+    )
+
     validation_stack = np.column_stack(
-        [phase2_validation_scores, latent_validation_scores, nli_validation_scores]
+        [
+            latent_validation_scores,
+            *[
+                latent_classic_results[name]["validation_scores"]
+                for name in LATENT_CLASSIFIER_NAMES
+            ],
+            nli_validation_scores,
+            supervised_nli_validation_scores,
+        ]
     )
     ensemble_model = LogisticRegression(class_weight="balanced", random_state=seed)
     ensemble_model.fit(validation_stack, validation_labels)
@@ -230,14 +315,28 @@ def compare_methods(
     ensemble_threshold = find_best_threshold(validation_labels, ensemble_validation_scores)
     joblib.dump(ensemble_model, models_path / "phase3_ensemble.joblib")
     ensemble_scores = ensemble_model.predict_proba(
-        np.column_stack([phase2_scores, latent_scores, nli_scores])
+        np.column_stack(
+            [
+                latent_scores,
+                *[latent_classic_results[name]["scores"] for name in LATENT_CLASSIFIER_NAMES],
+                nli_scores,
+                supervised_nli_scores,
+            ]
+        )
     )[:, 1]
     ensemble_predicted = [1 if score >= ensemble_threshold else 0 for score in ensemble_scores]
 
     thresholds = {
         "phase2": phase2_threshold,
-        "phase3_latent": best_latent_threshold,
-        "phase3_nli": nli_threshold,
+        "phase3_latent_mlp": best_latent_threshold,
+        **{
+            str(latent_classic_results[name]["method"]): float(
+                latent_classic_results[name]["threshold"]
+            )
+            for name in LATENT_CLASSIFIER_NAMES
+        },
+        "phase3_nli_zero_shot": nli_threshold,
+        "phase3_nli_supervised": supervised_nli_threshold,
         "phase3_ensemble": ensemble_threshold,
         "latent_best_epoch": best_epoch,
     }
@@ -247,13 +346,33 @@ def compare_methods(
 
     methods = [
         ("phase2", phase2_predicted, phase2_scores, "TF-IDF, banderas lexicas y regresion logistica"),
-        ("phase3_latent", latent_predicted, latent_scores.tolist(), "Embeddings de Transformer y MLP"),
-        ("phase3_nli", nli_predicted, nli_scores, f"NLI zero-shot: {nli_model}"),
+        (
+            "phase3_latent_mlp",
+            latent_predicted,
+            latent_scores.tolist(),
+            "Embeddings de Transformer y MLP",
+        ),
+        *[
+            (
+                str(latent_classic_results[name]["method"]),
+                latent_classic_results[name]["predicted"],
+                latent_classic_results[name]["scores"].tolist(),
+                str(latent_classic_results[name]["notes"]),
+            )
+            for name in LATENT_CLASSIFIER_NAMES
+        ],
+        ("phase3_nli_zero_shot", nli_predicted, nli_scores, f"NLI zero-shot: {nli_model}"),
+        (
+            "phase3_nli_supervised",
+            supervised_nli_predicted,
+            supervised_nli_scores.tolist(),
+            "NLI supervisado: regresion logistica sobre puntajes de multiples hipotesis",
+        ),
         (
             "phase3_ensemble",
             ensemble_predicted,
             ensemble_scores.tolist(),
-            "Stacking calibrado de TF-IDF, embeddings y NLI",
+            "Stacking calibrado de los seis clasificadores de Fase 3",
         ),
     ]
     comparison_metrics = {}

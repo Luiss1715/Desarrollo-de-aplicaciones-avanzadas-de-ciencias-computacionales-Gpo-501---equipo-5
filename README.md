@@ -117,6 +117,7 @@ python -m suicidality.cli predict --model models/pipeline.joblib --text "I want 
 - docs/parteA.md
 - docs/parteB.md
 - docs/fase3_nli_llm.md
+- docs/fase3_clasificadores.md
 
 ## Fase 3: Espacio latente, red neuronal y NLI
 
@@ -132,7 +133,7 @@ ejecución descarga el modelo seleccionado desde Hugging Face.
 ### Entrenar el clasificador sobre embeddings
 
 ```bash
-python -m suicidality.latent_pipeline train --csv DataSet.csv --model-name sentence-transformers/all-MiniLM-L6-v2
+python -m suicidality.fase3.latent_pipeline train --csv DataSet.csv --model-name sentence-transformers/all-MiniLM-L6-v2
 ```
 
 Este comando guarda `models/latent_nn.pt`, `models/latent_config.json`, métricas
@@ -141,13 +142,13 @@ y predicciones de validación.
 ### Evaluar el clasificador sobre embeddings
 
 ```bash
-python -m suicidality.latent_pipeline eval --csv DataSet.csv --model models/latent_nn.pt
+python -m suicidality.fase3.latent_pipeline eval --csv DataSet.csv --model models/latent_nn.pt
 ```
 
 ### Ejecutar NLI zero-shot
 
 ```bash
-python -m suicidality.nli_classifier eval --csv DataSet.csv --model-name facebook/bart-large-mnli --threshold 0.5
+python -m suicidality.fase3.nli_classifier eval --csv DataSet.csv --model-name facebook/bart-large-mnli --threshold 0.5
 ```
 
 ### Comparar Fase 2 y Fase 3
@@ -156,6 +157,12 @@ python -m suicidality.nli_classifier eval --csv DataSet.csv --model-name faceboo
 python -m suicidality.compare_phase2_phase3 --csv data_train.csv --test-csv data_test_fold2.csv --reports-dir reports --models-dir models
 ```
 
+La comparacion incluye siete clasificadores de Fase 3: MLP, regresion logistica,
+SVM lineal y Random Forest sobre el mismo espacio latente; NLI zero-shot; NLI
+supervisado sobre multiples hipotesis; y un ensamble de los seis modelos base.
+`phase2` se conserva como linea base adicional, por lo que la tabla final tiene
+ocho filas. Consulta `docs/fase3_clasificadores.md` para los detalles.
+
 La comparación reserva una validación interna por `user_id` dentro de
 `data_train.csv` para calibrar umbrales, early stopping y el ensamble. Después
 reentrena los modelos base con todo `data_train.csv`; `data_test_fold2.csv` se
@@ -163,8 +170,13 @@ usa exclusivamente para la evaluación final. Los textos largos se procesan por
 fragmentos para evitar perder señales ubicadas al final.
 
 - `reports/phase2_predictions.csv`
-- `reports/phase3_latent_predictions.csv`
-- `reports/phase3_nli_predictions.csv`
+- `reports/phase3_latent_mlp_predictions.csv`
+- `reports/phase3_latent_logreg_predictions.csv`
+- `reports/phase3_latent_svm_predictions.csv`
+- `reports/phase3_latent_random_forest_predictions.csv`
+- `reports/phase3_nli_zero_shot_predictions.csv`
+- `reports/phase3_nli_supervised_predictions.csv`
+- `reports/phase3_ensemble_predictions.csv`
 - `reports/comparison_metrics.json`
 - `reports/comparison_table.csv`
 - `reports/metrics.json`
@@ -172,6 +184,10 @@ fragmentos para evitar perder señales ubicadas al final.
 - `reports/latent_space_pca.png`
 - `models/phase3_thresholds.json`
 - `models/phase3_ensemble.joblib`
+- `models/latent_logistic_regression.joblib`
+- `models/latent_linear_svm.joblib`
+- `models/latent_random_forest.joblib`
+- `models/nli_supervised.joblib`
 
 La AUC principal se calcula con la fórmula del protocolo:
 `AUC = (1 + TPR - FPR) / 2`.
@@ -189,7 +205,7 @@ python -m suicidality.compare_phase2_phase3 --csv data_train.csv --test-csv data
 ### Visualizar el espacio latente
 
 ```bash
-python -m suicidality.latent_visualization --csv DataSet.csv --model-name sentence-transformers/all-MiniLM-L6-v2
+python -m suicidality.fase3.latent_visualization --csv DataSet.csv --model-name sentence-transformers/all-MiniLM-L6-v2
 ```
 
 Se genera `reports/latent_space_pca.png`. Si `umap-learn` está instalado,

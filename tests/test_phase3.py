@@ -1,13 +1,20 @@
+import numpy as np
 import pandas as pd
 
 from suicidality.compare_phase2_phase3 import (
     COMPARISON_COLUMNS,
+    LATENT_METHODS,
     build_comparison_table,
     split_internal_validation,
 )
 from suicidality.fase3.embeddings import combine_title_text, prepare_texts, split_text_chunks
+from suicidality.fase3.latent_classifiers import (
+    LATENT_CLASSIFIER_NAMES,
+    fit_latent_classifier,
+    predict_positive_scores,
+)
 from suicidality.llm_prompt_classifier import PromptLLMClassifier, parse_prompt_response
-from suicidality.fase3.nli_classifier import ZeroShotNLIClassifier
+from suicidality.fase3.nli_classifier import SupervisedNLIClassifier, ZeroShotNLIClassifier
 from suicidality.protocol_metrics import PREDICTION_COLUMNS, build_prediction_frame
 
 
@@ -149,3 +156,69 @@ def test_nli_uses_maximum_chunk_score():
 
     assert predicted.tolist() == [1]
     assert scores.tolist() == [0.9]
+
+
+def test_all_classic_latent_classifiers_return_probability_like_scores():
+    embeddings = np.asarray(
+        [
+            [0.0, 0.0],
+            [0.1, 0.2],
+            [0.9, 0.8],
+            [1.0, 1.0],
+            [0.2, 0.1],
+            [0.8, 0.9],
+        ]
+    )
+    labels = [0, 0, 1, 1, 0, 1]
+
+    for name in LATENT_CLASSIFIER_NAMES:
+        classifier = fit_latent_classifier(name, embeddings, labels, seed=7)
+        scores = predict_positive_scores(classifier, embeddings)
+
+        assert scores.shape == (len(labels),)
+        assert np.all((scores >= 0.0) & (scores <= 1.0))
+
+
+def test_supervised_nli_learns_from_precomputed_hypothesis_scores():
+    features = np.asarray(
+        [
+            [0.9, 0.8, 0.1],
+            [0.8, 0.7, 0.2],
+            [0.1, 0.2, 0.9],
+            [0.2, 0.1, 0.8],
+        ]
+    )
+    classifier = SupervisedNLIClassifier(candidate_labels=["risk", "harm", "safe"])
+
+    classifier.fit_features(features, [1, 1, 0, 0])
+    predicted, scores = classifier.predict_from_features(features)
+
+    assert predicted.tolist() == [1, 1, 0, 0]
+    assert np.all((scores >= 0.0) & (scores <= 1.0))
+
+
+def test_nli_feature_extraction_preserves_requested_label_order():
+    classifier = ZeroShotNLIClassifier(hypothesis_templates=["This text expresses {}."])
+    classifier._classifier = lambda texts, candidate_labels, **kwargs: [
+        {
+            "labels": list(reversed(candidate_labels)),
+            "scores": [0.2, 0.8],
+        }
+        for _ in texts
+    ]
+
+    features = classifier.predict_features(["sample text"], ["risk", "safe"])
+
+    assert features.tolist() == [[0.8, 0.2]]
+
+
+def test_phase3_exposes_seven_comparison_methods():
+    phase3_methods = {
+        "phase3_latent_mlp",
+        *(method for method, _ in LATENT_METHODS.values()),
+        "phase3_nli_zero_shot",
+        "phase3_nli_supervised",
+        "phase3_ensemble",
+    }
+
+    assert len(phase3_methods) == 7

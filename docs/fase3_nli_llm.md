@@ -2,13 +2,22 @@
 
 ## Métodos evaluados
 
-La comparación usa tres métodos sobre el mismo conjunto de prueba:
+La comparación actual usa `phase2` como línea base y siete clasificadores de
+Fase 3 sobre el mismo conjunto de prueba:
 
 | Método | Representación | Clasificador |
 | --- | --- | --- |
 | `phase2` | TF-IDF y banderas léxicas | Regresión logística |
-| `phase3_latent` | Embeddings de Transformer | MLP entrenada |
-| `phase3_nli` | Texto completo | NLI zero-shot |
+| `phase3_latent_mlp` | Embeddings de Transformer | MLP entrenada |
+| `phase3_latent_logreg` | Embeddings de Transformer | Regresión logística |
+| `phase3_latent_svm` | Embeddings de Transformer | SVM lineal |
+| `phase3_latent_random_forest` | Embeddings de Transformer | Random Forest |
+| `phase3_nli_zero_shot` | Texto completo | NLI zero-shot |
+| `phase3_nli_supervised` | Puntajes de múltiples hipótesis NLI | Regresión logística supervisada |
+| `phase3_ensemble` | Scores de los seis modelos de Fase 3 | Stacking |
+
+Consulta `docs/fase3_clasificadores.md` para la descripción y los artefactos de
+los nuevos clasificadores.
 
 La entrada de cada método es la concatenación de `title` y `text`. Cada salida
 contiene una etiqueta binaria y un score continuo entre 0 y 1.
@@ -90,8 +99,12 @@ La comparación real se guarda en `reports/comparison_table.csv` con esta forma:
 | method | TP | TN | FP | FN | TPR | FPR | AUC | ROC-AUC | comentario |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | `phase2` | 14 | 21 | 4 | 12 | 0.5385 | 0.1600 | 0.6892 | 0.7769 | TF-IDF, banderas léxicas y regresión logística |
-| `phase3_latent` | 17 | 17 | 8 | 9 | 0.6538 | 0.3200 | 0.6669 | 0.6831 | Embeddings de Transformer y MLP |
-| `phase3_nli` | 25 | 3 | 22 | 1 | 0.9615 | 0.8800 | 0.5408 | 0.6708 | NLI zero-shot |
+| `phase3_latent_mlp` | 17 | 17 | 8 | 9 | 0.6538 | 0.3200 | 0.6669 | 0.6831 | Embeddings de Transformer y MLP |
+| `phase3_nli_zero_shot` | 25 | 3 | 22 | 1 | 0.9615 | 0.8800 | 0.5408 | 0.6708 | NLI zero-shot |
+
+Esta tabla conserva resultados historicos de la comparacion original de tres
+metodos. Se debe volver a ejecutar el comparador para obtener las metricas de
+los siete clasificadores actuales.
 
 Estos resultados corresponden a `DataSet.csv`, split estratificado 80/20, semilla
 42 y umbral 0.5. Fase 2 obtuvo la mayor AUC del protocolo y ROC-AUC, además del
@@ -127,17 +140,26 @@ Una ejecución completa genera:
 
 - `reports/metrics.json` y `reports/roc.png` para Fase 2.
 - `reports/phase2_predictions.csv`.
-- `reports/phase3_latent_predictions.csv`.
-- `reports/phase3_nli_predictions.csv`.
+- `reports/phase3_latent_mlp_predictions.csv`.
+- `reports/phase3_latent_logreg_predictions.csv`.
+- `reports/phase3_latent_svm_predictions.csv`.
+- `reports/phase3_latent_random_forest_predictions.csv`.
+- `reports/phase3_nli_zero_shot_predictions.csv`.
+- `reports/phase3_nli_supervised_predictions.csv`.
+- `reports/phase3_ensemble_predictions.csv`.
 - `reports/comparison_metrics.json`.
 - `reports/comparison_table.csv`.
 - `reports/latent_space_pca.png`.
 - `models/phase3_thresholds.json`.
 - `models/phase3_ensemble.joblib`.
+- `models/latent_logistic_regression.joblib`.
+- `models/latent_linear_svm.joblib`.
+- `models/latent_random_forest.joblib`.
+- `models/nli_supervised.joblib`.
 - `models/pipeline.joblib`, `models/latent_nn.pt` y `models/latent_config.json`.
 
 UMAP es opcional. Se puede instalar con `pip install umap-learn` y generar con:
 
 ```bash
-python -m suicidality.latent_visualization --csv DataSet.csv
+python -m suicidality.fase3.latent_visualization --csv DataSet.csv
 ```

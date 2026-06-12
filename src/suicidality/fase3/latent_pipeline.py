@@ -37,8 +37,8 @@ def train_latent_pipeline(
     model_name: str = DEFAULT_EMBEDDING_MODEL,
     model_path: str | Path = "models/latent_nn.pt",
     config_path: str | Path = "models/latent_config.json",
-    predictions_path: str | Path = "reports/phase3_latent_predictions.csv",
-    metrics_path: str | Path = "reports/phase3_latent_metrics.json",
+    predictions_path: str | Path = "reports/phase3_latent_mlp_predictions.csv",
+    metrics_path: str | Path = "reports/phase3_latent_mlp_metrics.json",
     embeddings_path: str | Path | None = None,
     test_size: float = 0.2,
     seed: int = 42,
@@ -90,7 +90,7 @@ def train_latent_pipeline(
 
     predicted = predict_labels(scores, config.threshold)
     predictions = build_prediction_frame(
-        frame, validation_indices, predicted, scores, "phase3_latent"
+        frame, validation_indices, predicted, scores, "phase3_latent_mlp"
     )
     metrics = calculate_protocol_metrics(
         [labels[index] for index in validation_indices], predicted.tolist(), scores.tolist()
@@ -104,8 +104,8 @@ def evaluate_latent_pipeline(
     frame: pd.DataFrame,
     model_path: str | Path,
     config_path: str | Path,
-    predictions_path: str | Path = "reports/phase3_latent_predictions.csv",
-    metrics_path: str | Path = "reports/phase3_latent_metrics.json",
+    predictions_path: str | Path = "reports/phase3_latent_mlp_predictions.csv",
+    metrics_path: str | Path = "reports/phase3_latent_mlp_metrics.json",
     batch_size: int = 32,
     device: str | None = None,
 ) -> tuple[pd.DataFrame, dict[str, int | float]]:
@@ -116,7 +116,9 @@ def evaluate_latent_pipeline(
     scores = predict_scores(model, embeddings, device=device)
     predicted = predict_labels(scores, config.threshold)
     labels = labels_from_frame(frame)
-    predictions = build_prediction_frame(frame, range(len(frame)), predicted, scores, "phase3_latent")
+    predictions = build_prediction_frame(
+        frame, range(len(frame)), predicted, scores, "phase3_latent_mlp"
+    )
     metrics = calculate_protocol_metrics(labels, predicted.tolist(), scores.tolist())
     _save_predictions(predictions, predictions_path)
     save_metrics(metrics, metrics_path)
@@ -138,8 +140,10 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--model-name", default=DEFAULT_EMBEDDING_MODEL)
     train_parser.add_argument("--model-out", default="models/latent_nn.pt")
     train_parser.add_argument("--config-out", default="models/latent_config.json")
-    train_parser.add_argument("--predictions-out", default="reports/phase3_latent_predictions.csv")
-    train_parser.add_argument("--metrics-out", default="reports/phase3_latent_metrics.json")
+    train_parser.add_argument(
+        "--predictions-out", default="reports/phase3_latent_mlp_predictions.csv"
+    )
+    train_parser.add_argument("--metrics-out", default="reports/phase3_latent_mlp_metrics.json")
     train_parser.add_argument("--embeddings-out")
     train_parser.add_argument("--test-size", type=float, default=0.2)
     train_parser.add_argument("--seed", type=int, default=42)
@@ -153,8 +157,10 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--csv", required=True)
     eval_parser.add_argument("--model", required=True)
     eval_parser.add_argument("--config", default="models/latent_config.json")
-    eval_parser.add_argument("--predictions-out", default="reports/phase3_latent_predictions.csv")
-    eval_parser.add_argument("--metrics-out", default="reports/phase3_latent_metrics.json")
+    eval_parser.add_argument(
+        "--predictions-out", default="reports/phase3_latent_mlp_predictions.csv"
+    )
+    eval_parser.add_argument("--metrics-out", default="reports/phase3_latent_mlp_metrics.json")
     eval_parser.add_argument("--batch-size", type=int, default=32)
     eval_parser.add_argument("--device")
     return parser

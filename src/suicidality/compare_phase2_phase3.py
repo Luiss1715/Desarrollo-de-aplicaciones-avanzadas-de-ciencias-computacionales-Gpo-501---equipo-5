@@ -23,6 +23,7 @@ from .fase3.latent_classifiers import (
 from .fase3.latent_nn import LatentNNConfig, predict_labels, predict_scores, save_latent_model, train_mlp
 from .fase3.latent_pipeline import load_phase3_dataset
 from .fase3.latent_visualization import plot_projection
+from .fase3.model_visualizations import generate_model_comparison_visualizations
 from .fase2.lexing import RiskLexer
 from .fase2.model import SuicideRiskModel
 from .fase3.nli_classifier import DEFAULT_NLI_MODEL, SupervisedNLIClassifier, ZeroShotNLIClassifier
@@ -377,9 +378,11 @@ def compare_methods(
     ]
     comparison_metrics = {}
     table_rows = []
+    prediction_frames = {}
     
     for method, predicted, scores, notes in methods:
         predictions = build_prediction_frame(test_frame_for_output, test_indices_for_output, predicted, scores, method)
+        prediction_frames[method] = predictions
         predictions.to_csv(reports_path / f"{method}_predictions.csv", index=False)
         metrics = calculate_protocol_metrics(actual_test_labels, predicted, scores)
         comparison_metrics[method] = metrics
@@ -393,6 +396,12 @@ def compare_methods(
     )
     comparison = build_comparison_table(table_rows)
     comparison.to_csv(reports_path / "comparison_table.csv", index=False)
+    generate_model_comparison_visualizations(
+        prediction_frames,
+        comparison,
+        output_dir=reports_path,
+        thresholds=thresholds,
+    )
     return comparison
 
 

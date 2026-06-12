@@ -52,3 +52,23 @@ guarda los modelos clasicos del espacio latente:
 El NLI supervisado procesa el conjunto de entrenamiento completo con el modelo
 MNLI, por lo que esta parte puede tardar considerablemente mas que zero-shot
 sobre solamente el conjunto de prueba.
+
+## Graficas comparativas
+
+Al finalizar, el comparador genera seis graficas para interpretar resultados:
+
+- `model_metrics_comparison.png`: TPR, FPR, AUC y ROC-AUC por modelo.
+- `confusion_matrices.png`: TP, TN, FP y FN de todos los clasificadores.
+- `roc_curves_comparison.png`: curvas ROC conjuntas.
+- `precision_recall_curves.png`: curvas Precision-Recall conjuntas.
+- `fp_fn_tradeoff.png`: balance entre falsas alertas y casos no detectados.
+- `threshold_sensitivity.png`: efecto del umbral sobre la AUC del protocolo.
+
+Se pueden regenerar usando los resultados existentes, sin ejecutar nuevamente
+los modelos:
+
+```bash
+python -m suicidality.fase3.model_visualizations \
+  --reports-dir reports \
+  --thresholds models/phase3_thresholds.json
+```

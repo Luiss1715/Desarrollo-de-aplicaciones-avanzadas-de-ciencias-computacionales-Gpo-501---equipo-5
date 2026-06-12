@@ -196,6 +196,22 @@ La tabla comparativa incluye tambien ROC-AUC, calculada con los scores continuos
 La primera ejecucion descarga los modelos de Hugging Face y puede requerir varios
 minutos, memoria suficiente y conexion a internet.
 
+La comparacion tambien genera automaticamente:
+
+- `reports/model_metrics_comparison.png`
+- `reports/confusion_matrices.png`
+- `reports/roc_curves_comparison.png`
+- `reports/precision_recall_curves.png`
+- `reports/fp_fn_tradeoff.png`
+- `reports/threshold_sensitivity.png`
+
+Estas graficas pueden regenerarse desde los CSV existentes, sin volver a
+entrenar modelos ni ejecutar NLI:
+
+```bash
+python -m suicidality.fase3.model_visualizations --reports-dir reports --thresholds models/phase3_thresholds.json
+```
+
 En un equipo con PyTorch y CUDA:
 
 ```bash

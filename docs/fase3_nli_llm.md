@@ -33,9 +33,9 @@ pueden quedar próximos aunque no compartan las mismas palabras.
 
 La MLP recibe los embeddings y aprende una frontera de decisión con dos capas
 ocultas, activaciones ReLU y dropout. Se entrena con `BCEWithLogitsLoss`. El
-comparador crea un split estratificado común, entrena la MLP únicamente con la
-partición de entrenamiento y calcula sus métricas sobre la misma partición de
-prueba usada por Fase 2 y NLI.
+comparador crea una validación interna agrupada por usuario para calibrar la MLP
+y después la reentrena con todo el conjunto de entrenamiento. Las métricas
+finales se calculan únicamente sobre el CSV de prueba separado.
 
 La proyección PCA en `reports/latent_space_pca.png` permite inspeccionar la
 separación de clases en dos dimensiones. PCA sirve para visualización; no es la
@@ -60,10 +60,13 @@ como clasificador.
 El comando principal es:
 
 ```bash
-python -m suicidality.compare_phase2_phase3 --csv DataSet.csv --reports-dir reports --models-dir models
+python -m suicidality.compare_phase2_phase3 --csv data_train.csv --test-csv data_test_fold2.csv --reports-dir reports --models-dir models
 ```
 
-El comparador usa un split estratificado 80/20 con semilla 42 por defecto. Para
+El comparador crea una validación interna agrupada por `user_id` dentro de
+`data_train.csv`. Esa validación calibra umbrales, selecciona la mejor época de
+la MLP y entrena el stacking. Luego los modelos base se reentrenan con todo
+`data_train.csv`; `data_test_fold2.csv` se usa solo para el reporte final. Para
 cada texto de prueba guarda la etiqueta real, la predicción binaria y el score.
 Después calcula:
 
@@ -111,7 +114,7 @@ En una computadora con PyTorch configurado para CUDA, la comparación puede
 ejecutarse con:
 
 ```bash
-python -m suicidality.compare_phase2_phase3 --csv DataSet.csv --reports-dir reports --models-dir models --device cuda --nli-device 0
+python -m suicidality.compare_phase2_phase3 --csv data_train.csv --test-csv data_test_fold2.csv --reports-dir reports --models-dir models --device cuda --nli-device 0
 ```
 
 La GPU reduce principalmente el tiempo de embeddings, entrenamiento de la MLP y
@@ -129,6 +132,8 @@ Una ejecución completa genera:
 - `reports/comparison_metrics.json`.
 - `reports/comparison_table.csv`.
 - `reports/latent_space_pca.png`.
+- `models/phase3_thresholds.json`.
+- `models/phase3_ensemble.joblib`.
 - `models/pipeline.joblib`, `models/latent_nn.pt` y `models/latent_config.json`.
 
 UMAP es opcional. Se puede instalar con `pip install umap-learn` y generar con:

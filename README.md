@@ -153,10 +153,14 @@ python -m suicidality.nli_classifier eval --csv DataSet.csv --model-name faceboo
 ### Comparar Fase 2 y Fase 3
 
 ```bash
-python -m suicidality.compare_phase2_phase3 --csv DataSet.csv --reports-dir reports --models-dir models
+python -m suicidality.compare_phase2_phase3 --csv data_train.csv --test-csv data_test_fold2.csv --reports-dir reports --models-dir models
 ```
 
-La comparación usa el mismo split estratificado para los tres métodos y genera:
+La comparación reserva una validación interna por `user_id` dentro de
+`data_train.csv` para calibrar umbrales, early stopping y el ensamble. Después
+reentrena los modelos base con todo `data_train.csv`; `data_test_fold2.csv` se
+usa exclusivamente para la evaluación final. Los textos largos se procesan por
+fragmentos para evitar perder señales ubicadas al final.
 
 - `reports/phase2_predictions.csv`
 - `reports/phase3_latent_predictions.csv`
@@ -166,6 +170,8 @@ La comparación usa el mismo split estratificado para los tres métodos y genera
 - `reports/metrics.json`
 - `reports/roc.png`
 - `reports/latent_space_pca.png`
+- `models/phase3_thresholds.json`
+- `models/phase3_ensemble.joblib`
 
 La AUC principal se calcula con la fórmula del protocolo:
 `AUC = (1 + TPR - FPR) / 2`.
@@ -177,7 +183,7 @@ minutos, memoria suficiente y conexion a internet.
 En un equipo con PyTorch y CUDA:
 
 ```bash
-python -m suicidality.compare_phase2_phase3 --csv DataSet.csv --reports-dir reports --models-dir models --device cuda --nli-device 0
+python -m suicidality.compare_phase2_phase3 --csv data_train.csv --test-csv data_test_fold2.csv --reports-dir reports --models-dir models --device cuda --nli-device 0
 ```
 
 ### Visualizar el espacio latente

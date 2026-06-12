@@ -8,7 +8,8 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
-from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
 from .config import LEXICON_PATH, TrainConfig
 from .fase3.embeddings import DEFAULT_EMBEDDING_MODEL, TransformerEmbedder, prepare_texts
@@ -64,6 +65,35 @@ def build_comparison_table(rows: list[dict[str, object]]) -> pd.DataFrame:
     return comparison[COMPARISON_COLUMNS]
 
 
+def split_internal_validation(
+    frame: pd.DataFrame,
+    labels: list[int],
+    validation_size: float,
+    seed: int,
+) -> tuple[list[int], list[int]]:
+    indices = np.arange(len(frame))
+    if "user_id" in frame.columns and frame["user_id"].notna().any():
+        groups = frame["user_id"].fillna(frame.index.to_series().map(lambda value: f"row-{value}"))
+        splitter = GroupShuffleSplit(n_splits=20, test_size=validation_size, random_state=seed)
+        candidates = [
+            split
+            for split in splitter.split(indices, labels, groups)
+            if len(set(np.asarray(labels)[split[0]])) == 2
+            and len(set(np.asarray(labels)[split[1]])) == 2
+        ]
+        if not candidates:
+            raise ValueError("Could not create a grouped validation split containing both classes")
+        train_indices, validation_indices = min(
+            candidates,
+            key=lambda split: abs(np.mean(np.asarray(labels)[split[1]]) - np.mean(labels)),
+        )
+        return train_indices.tolist(), validation_indices.tolist()
+    train_indices, validation_indices = train_test_split(
+        indices, test_size=validation_size, random_state=seed, stratify=labels
+    )
+    return train_indices.tolist(), validation_indices.tolist()
+
+
 def compare_methods(
     csv_path: str | Path,
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
@@ -79,91 +109,98 @@ def compare_methods(
     nli_device: int | None = None,
     test_csv_path: str | Path | None = None,
 ) -> pd.DataFrame:
+    if test_csv_path is not None and Path(csv_path).resolve() == Path(test_csv_path).resolve():
+        raise ValueError("Training and test CSV files must be different")
     frame = load_phase3_dataset(csv_path)
     labels = labels_from_frame(frame)
     texts = prepare_texts(frame)
-    
+    internal_train_indices, validation_indices = split_internal_validation(
+        frame, labels, test_size, seed
+    )
+
     if test_csv_path is not None:
-        # Use separate test set
         test_frame = load_phase3_dataset(test_csv_path)
-        test_labels = labels_from_frame(test_frame)
+        actual_test_labels = labels_from_frame(test_frame)
         test_texts = prepare_texts(test_frame)
-        train_indices = list(range(len(frame)))
-        test_indices = None  # Not used with separate test set
+        test_frame_for_output = test_frame
+        test_indices_for_output = list(range(len(test_frame)))
     else:
-        # Split train/test from same dataset
-        train_indices, test_indices = train_test_split(
-            list(range(len(frame))), test_size=test_size, random_state=seed, stratify=labels
-        )
-        test_texts = None
-        test_labels = None
+        test_texts = [texts[index] for index in validation_indices]
+        actual_test_labels = [labels[index] for index in validation_indices]
+        test_frame_for_output = frame
+        test_indices_for_output = validation_indices
     reports_path = Path(reports_dir)
     models_path = Path(models_dir)
     reports_path.mkdir(parents=True, exist_ok=True)
     models_path.mkdir(parents=True, exist_ok=True)
 
+    phase2_validation = build_phase2_pipeline(TrainConfig(test_size=test_size, random_seed=seed))
+    phase2_validation.fit(
+        [texts[index] for index in internal_train_indices],
+        [labels[index] for index in internal_train_indices],
+    )
+    phase2_validation_scores = phase2_validation.predict_proba(
+        [texts[index] for index in validation_indices]
+    )
+    phase2_threshold = find_best_threshold(
+        [labels[index] for index in validation_indices], phase2_validation_scores
+    )
     phase2 = build_phase2_pipeline(TrainConfig(test_size=test_size, random_seed=seed))
-    phase2.fit([texts[index] for index in train_indices], [labels[index] for index in train_indices])
+    phase2.fit(texts, labels)
     joblib.dump(phase2, models_path / "pipeline.joblib")
-    
-    # Get test texts and labels based on whether separate test set was provided
-    if test_csv_path is not None:
-        phase2_test_texts = test_texts
-        actual_test_labels = test_labels
-    else:
-        phase2_test_texts = [texts[index] for index in test_indices]
-        actual_test_labels = [labels[index] for index in test_indices]
-    
-    phase2_scores = phase2.predict_proba(phase2_test_texts)
-    phase2_predicted = [1 if score >= threshold else 0 for score in phase2_scores]
-    phase2_metrics = calculate_protocol_metrics(actual_test_labels, phase2_predicted, phase2_scores)
-    save_metrics(phase2_metrics, reports_path / "metrics.json")
-    save_roc_curve(actual_test_labels, phase2_scores, reports_path / "roc.png")
+    phase2_scores = phase2.predict_proba(test_texts)
+    phase2_predicted = [1 if score >= phase2_threshold else 0 for score in phase2_scores]
 
-    embeddings = TransformerEmbedder(embedding_model, device=device).encode(texts, batch_size=batch_size)
+    embedder = TransformerEmbedder(embedding_model, device=device)
+    embeddings = embedder.encode_chunked(texts, batch_size=batch_size)
     plot_projection(
         PCA(n_components=2).fit_transform(embeddings),
         labels,
         "Latent space: PCA",
         reports_path / "latent_space_pca.png",
     )
-    latent_config = LatentNNConfig(
-        input_dim=embeddings.shape[1], embedding_model=embedding_model, threshold=threshold
-    )
-    
-    # Prepare test embeddings and labels for latent model training
-    if test_csv_path is not None:
-        test_embeddings = TransformerEmbedder(embedding_model, device=device).encode(test_texts, batch_size=batch_size)
-        latent_test_labels = test_labels
-    else:
-        test_embeddings = embeddings[test_indices]
-        latent_test_labels = [labels[index] for index in test_indices]
-    
-    latent_model, _ = train_mlp(
-        embeddings[train_indices],
-        [labels[index] for index in train_indices],
-        test_embeddings,
-        latent_test_labels,
-        latent_config,
+    base_latent_config = LatentNNConfig(input_dim=embeddings.shape[1], embedding_model=embedding_model)
+    validation_labels = [labels[index] for index in validation_indices]
+    latent_validation_model, history = train_mlp(
+        embeddings[internal_train_indices],
+        [labels[index] for index in internal_train_indices],
+        embeddings[validation_indices],
+        validation_labels,
+        base_latent_config,
         epochs=epochs,
         batch_size=batch_size,
         seed=seed,
         device=device,
         use_class_weight=True,
-        weight_decay=1e-5,
+        weight_decay=1e-4,
     )
-    latent_train_scores = predict_scores(latent_model, embeddings[train_indices], device=device)
-    best_latent_threshold = find_best_threshold(
-        [labels[index] for index in train_indices],
-        latent_train_scores,
+    latent_validation_scores = predict_scores(
+        latent_validation_model, embeddings[validation_indices], device=device
     )
+    best_latent_threshold = find_best_threshold(validation_labels, latent_validation_scores)
+    best_epoch = int(max(history, key=lambda row: row["validation_roc_auc"])["epoch"])
     latent_config = LatentNNConfig(
-        input_dim=latent_config.input_dim,
-        embedding_model=latent_config.embedding_model,
-        hidden_dim_1=latent_config.hidden_dim_1,
-        hidden_dim_2=latent_config.hidden_dim_2,
-        dropout=latent_config.dropout,
+        input_dim=base_latent_config.input_dim,
+        embedding_model=base_latent_config.embedding_model,
+        hidden_dim_1=base_latent_config.hidden_dim_1,
+        hidden_dim_2=base_latent_config.hidden_dim_2,
+        dropout=base_latent_config.dropout,
         threshold=best_latent_threshold,
+    )
+    latent_model, _ = train_mlp(
+        embeddings,
+        labels,
+        embeddings[validation_indices],
+        validation_labels,
+        latent_config,
+        epochs=best_epoch,
+        batch_size=batch_size,
+        seed=seed,
+        device=device,
+        use_class_weight=True,
+        weight_decay=1e-4,
+        early_stopping_patience=None,
+        restore_best_weights=False,
     )
     save_latent_model(
         latent_model,
@@ -171,21 +208,42 @@ def compare_methods(
         models_path / "latent_nn.pt",
         models_path / "latent_config.json",
     )
+    test_embeddings = embedder.encode_chunked(test_texts, batch_size=batch_size)
     latent_scores = predict_scores(latent_model, test_embeddings, device=device)
     latent_predicted = predict_labels(latent_scores, latent_config.threshold).tolist()
 
-    nli_predicted_array, nli_scores_array = ZeroShotNLIClassifier(
-        nli_model, threshold, device=nli_device
-    ).predict(test_texts, batch_size=max(1, batch_size // 4))
-    nli_predicted = nli_predicted_array.tolist()
-    nli_scores = nli_scores_array.tolist()
-
-    ensemble_scores = (
-        0.35 * np.asarray(phase2_scores)
-        + 0.35 * np.asarray(latent_scores)
-        + 0.30 * np.asarray(nli_scores)
+    nli_classifier = ZeroShotNLIClassifier(nli_model, threshold, device=nli_device)
+    _, nli_validation_scores = nli_classifier.predict(
+        [texts[index] for index in validation_indices], batch_size=max(1, batch_size // 4)
     )
-    ensemble_predicted = [1 if score >= threshold else 0 for score in ensemble_scores]
+    nli_threshold = find_best_threshold(validation_labels, nli_validation_scores)
+    _, nli_scores_array = nli_classifier.predict(test_texts, batch_size=max(1, batch_size // 4))
+    nli_scores = nli_scores_array.tolist()
+    nli_predicted = [1 if score >= nli_threshold else 0 for score in nli_scores]
+
+    validation_stack = np.column_stack(
+        [phase2_validation_scores, latent_validation_scores, nli_validation_scores]
+    )
+    ensemble_model = LogisticRegression(class_weight="balanced", random_state=seed)
+    ensemble_model.fit(validation_stack, validation_labels)
+    ensemble_validation_scores = ensemble_model.predict_proba(validation_stack)[:, 1]
+    ensemble_threshold = find_best_threshold(validation_labels, ensemble_validation_scores)
+    joblib.dump(ensemble_model, models_path / "phase3_ensemble.joblib")
+    ensemble_scores = ensemble_model.predict_proba(
+        np.column_stack([phase2_scores, latent_scores, nli_scores])
+    )[:, 1]
+    ensemble_predicted = [1 if score >= ensemble_threshold else 0 for score in ensemble_scores]
+
+    thresholds = {
+        "phase2": phase2_threshold,
+        "phase3_latent": best_latent_threshold,
+        "phase3_nli": nli_threshold,
+        "phase3_ensemble": ensemble_threshold,
+        "latent_best_epoch": best_epoch,
+    }
+    (models_path / "phase3_thresholds.json").write_text(
+        json.dumps(thresholds, indent=2), encoding="utf-8"
+    )
 
     methods = [
         ("phase2", phase2_predicted, phase2_scores, "TF-IDF, banderas lexicas y regresion logistica"),
@@ -195,19 +253,11 @@ def compare_methods(
             "phase3_ensemble",
             ensemble_predicted,
             ensemble_scores.tolist(),
-            "Ensamble de TF-IDF, embeddings y NLI",
+            "Stacking calibrado de TF-IDF, embeddings y NLI",
         ),
     ]
     comparison_metrics = {}
     table_rows = []
-    
-    # Prepare test frame and indices for output
-    if test_csv_path is not None:
-        test_frame_for_output = load_phase3_dataset(test_csv_path)
-        test_indices_for_output = list(range(len(test_frame_for_output)))
-    else:
-        test_frame_for_output = frame
-        test_indices_for_output = test_indices
     
     for method, predicted, scores, notes in methods:
         predictions = build_prediction_frame(test_frame_for_output, test_indices_for_output, predicted, scores, method)
@@ -215,6 +265,9 @@ def compare_methods(
         metrics = calculate_protocol_metrics(actual_test_labels, predicted, scores)
         comparison_metrics[method] = metrics
         table_rows.append({**metrics, "method": method, "notes": notes})
+        if method == "phase2":
+            save_metrics(metrics, reports_path / "metrics.json")
+            save_roc_curve(actual_test_labels, scores, reports_path / "roc.png")
 
     (reports_path / "comparison_metrics.json").write_text(
         json.dumps(comparison_metrics, indent=2), encoding="utf-8"
@@ -231,7 +284,11 @@ def main() -> None:
     parser.add_argument("--nli-model", default=DEFAULT_NLI_MODEL)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--test-size", type=float, default=0.2)
-    parser.add_argument("--test-csv", default=None, help="Optional separate test CSV file")
+    parser.add_argument(
+        "--test-csv",
+        required=True,
+        help="Separate CSV used exclusively for final evaluation",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=32)

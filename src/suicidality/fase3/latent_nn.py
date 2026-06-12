@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -15,9 +16,9 @@ from torch.utils.data import DataLoader, TensorDataset
 class LatentNNConfig:
     input_dim: int
     embedding_model: str
-    hidden_dim_1: int = 512
-    hidden_dim_2: int = 128
-    dropout: float = 0.4
+    hidden_dim_1: int = 128
+    hidden_dim_2: int = 32
+    dropout: float = 0.3
     threshold: float = 0.5
 
 
@@ -51,6 +52,8 @@ def train_mlp(
     device: str | None = None,
     use_class_weight: bool = True,
     weight_decay: float = 1e-5,
+    early_stopping_patience: int | None = 5,
+    restore_best_weights: bool = True,
 ) -> tuple[LatentMLP, list[dict[str, float]]]:
     torch.manual_seed(seed)
     target_device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -72,6 +75,9 @@ def train_mlp(
     )
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     history = []
+    best_auc = -1.0
+    best_state = None
+    epochs_without_improvement = 0
 
     for epoch in range(epochs):
         model.train()
@@ -100,6 +106,16 @@ def train_mlp(
                 "validation_roc_auc": validation_auc,
             }
         )
+        if validation_auc > best_auc:
+            best_auc = validation_auc
+            best_state = deepcopy(model.state_dict())
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+        if early_stopping_patience is not None and epochs_without_improvement >= early_stopping_patience:
+            break
+    if restore_best_weights and best_state is not None:
+        model.load_state_dict(best_state)
     return model, history
 
 

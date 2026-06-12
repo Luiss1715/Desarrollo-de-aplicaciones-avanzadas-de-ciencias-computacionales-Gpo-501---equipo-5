@@ -7,7 +7,12 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from .embeddings import prepare_texts
+from .embeddings import (
+    DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_CHUNK_WORDS,
+    prepare_texts,
+    split_text_chunks,
+)
 from .latent_pipeline import load_phase3_dataset
 from ..protocol_metrics import (
     build_prediction_frame,
@@ -33,11 +38,15 @@ class ZeroShotNLIClassifier:
         threshold: float = 0.5,
         device: int | None = None,
         hypothesis_templates: Sequence[str] | None = None,
+        chunk_words: int = DEFAULT_CHUNK_WORDS,
+        chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
     ):
         self.model_name = model_name
         self.threshold = threshold
         self.device = device
         self.hypothesis_templates = list(hypothesis_templates or DEFAULT_HYPOTHESIS_TEMPLATES)
+        self.chunk_words = chunk_words
+        self.chunk_overlap = chunk_overlap
         self._classifier = None
 
     def _load_classifier(self):
@@ -54,10 +63,16 @@ class ZeroShotNLIClassifier:
 
     def predict(self, texts: Sequence[str], batch_size: int = 8) -> tuple[np.ndarray, np.ndarray]:
         classifier = self._load_classifier()
-        scores = np.zeros(len(texts), dtype=float)
+        chunks = []
+        owners = []
+        for owner, text in enumerate(texts):
+            text_chunks = split_text_chunks(text, self.chunk_words, self.chunk_overlap)
+            chunks.extend(text_chunks)
+            owners.extend([owner] * len(text_chunks))
+        chunk_scores = np.zeros(len(chunks), dtype=float)
         for template in self.hypothesis_templates:
             results = classifier(
-                list(texts),
+                chunks,
                 candidate_labels=[SUICIDAL_LABEL, NON_SUICIDAL_LABEL],
                 hypothesis_template=template,
                 multi_label=False,
@@ -66,13 +81,16 @@ class ZeroShotNLIClassifier:
             )
             if isinstance(results, dict):
                 results = [results]
-            scores += np.asarray(
+            chunk_scores += np.asarray(
                 [
                     float(result["scores"][result["labels"].index(SUICIDAL_LABEL)])
                     for result in results
                 ]
             )
-        scores /= max(1, len(self.hypothesis_templates))
+        chunk_scores /= max(1, len(self.hypothesis_templates))
+        scores = np.zeros(len(texts), dtype=float)
+        for owner, score in zip(owners, chunk_scores):
+            scores[owner] = max(scores[owner], score)
         return (scores >= self.threshold).astype(int), scores
 
 

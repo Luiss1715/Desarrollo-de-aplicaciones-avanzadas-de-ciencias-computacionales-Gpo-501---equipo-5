@@ -54,7 +54,7 @@ def train_latent_pipeline(
         indices, test_size=test_size, random_state=seed, stratify=labels
     )
     embedder = TransformerEmbedder(model_name, device=device)
-    embeddings = embedder.encode(prepare_texts(frame), batch_size=batch_size)
+    embeddings = embedder.encode_chunked(prepare_texts(frame), batch_size=batch_size)
     if embeddings_path:
         save_embeddings(embeddings, embeddings_path)
 
@@ -110,7 +110,7 @@ def evaluate_latent_pipeline(
     device: str | None = None,
 ) -> tuple[pd.DataFrame, dict[str, int | float]]:
     model, config = load_latent_model(model_path, config_path, device=device)
-    embeddings = TransformerEmbedder(config.embedding_model, device=device).encode(
+    embeddings = TransformerEmbedder(config.embedding_model, device=device).encode_chunked(
         prepare_texts(frame), batch_size=batch_size
     )
     scores = predict_scores(model, embeddings, device=device)

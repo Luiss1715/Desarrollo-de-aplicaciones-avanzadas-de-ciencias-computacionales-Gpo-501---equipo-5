@@ -43,7 +43,7 @@ def generate_visualizations(
     device: str | None = None,
 ) -> list[Path]:
     frame = load_phase3_dataset(csv_path)
-    embeddings = TransformerEmbedder(model_name, device=device).encode(
+    embeddings = TransformerEmbedder(model_name, device=device).encode_chunked(
         prepare_texts(frame), batch_size=batch_size
     )
     labels = labels_from_frame(frame)
